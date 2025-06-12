@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Upload, FileText, Download, Loader2, ImageIcon, FileImage } from "lucide-react"
+import { Upload, FileText, Download, Loader2, Image, FileImage, File } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Tesseract from "tesseract.js"
 
@@ -15,6 +15,7 @@ export default function OCRParser() {
   const [extractedText, setExtractedText] = useState("")
   const [jsonOutput, setJsonOutput] = useState("")
   const [dragActive, setDragActive] = useState(false)
+  const [processingStatus, setProcessingStatus] = useState("")
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -27,7 +28,7 @@ export default function OCRParser() {
     e.stopPropagation()
     setDragActive(false)
     const droppedFile = e.dataTransfer.files[0]
-    if (droppedFile && droppedFile.type.startsWith("image/")) {
+    if (droppedFile && (droppedFile.type.startsWith("image/") || droppedFile.type === "application/pdf")) {
       setFile(droppedFile)
     }
   }, [])
@@ -38,34 +39,146 @@ export default function OCRParser() {
     }
   }
 
+  const convertPdfToImages = async (pdfFile: File): Promise<string[]> => {
+    const arrayBuffer = await pdfFile.arrayBuffer()
+    
+    // Dynamically load PDF.js
+    let pdfjsLib
+    if (typeof window !== 'undefined') {
+      // Check if PDF.js is already loaded
+      pdfjsLib = (window as any).pdfjsLib
+      
+      if (!pdfjsLib) {
+        // Load PDF.js dynamically
+        const script = document.createElement('script')
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+        document.head.appendChild(script)
+        
+        await new Promise<void>((resolve, reject) => {
+          script.onload = () => {
+            pdfjsLib = (window as any).pdfjsLib
+            // Configure PDF.js worker
+            if (pdfjsLib) {
+              pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+            }
+            resolve()
+          }
+          script.onerror = reject
+        })
+      }
+    } else {
+      throw new Error('Window object not available')
+    }
+
+    if (!pdfjsLib) {
+      throw new Error('PDF.js failed to load')
+    }
+
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    const images: string[] = []
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      setProcessingStatus(`Converting PDF page ${pageNum} of ${pdf.numPages}...`)
+      
+      const page = await pdf.getPage(pageNum)
+      const viewport = page.getViewport({ scale: 2.0 })
+      
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext('2d')
+      if (!context) {
+        throw new Error('Failed to get canvas context')
+      }
+      
+      canvas.height = viewport.height
+      canvas.width = viewport.width
+
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise
+
+      images.push(canvas.toDataURL('image/png'))
+    }
+
+    return images
+  }
+
+  const processImageWithOCR = async (imageData: string | File): Promise<string> => {
+    const result = await Tesseract.recognize(imageData, "eng")
+    return result.data.text.trim()
+  }
+
   const extractText = async () => {
     if (!file) return
+
+    // Check if we're in browser environment
+    if (typeof window === 'undefined') {
+      setExtractedText("OCR processing is only available in the browser.")
+      return
+    }
 
     setIsProcessing(true)
     setExtractedText("")
     setJsonOutput("")
+    setProcessingStatus("Starting...")
 
-    const result = await Tesseract.recognize(file, "eng")
-    const text = result.data.text.trim()
+    try {
+      let allText = ""
 
-    setExtractedText(text)
-    setJsonOutput(
-      JSON.stringify(
-        {
-          filename: file.name,
-          fileType: file.type,
-          processedAt: new Date().toISOString(),
-          extractedText: text,
-        },
-        null,
-        2
+      if (file.type === "application/pdf") {
+        // Handle PDF files
+        setProcessingStatus("Converting PDF to images...")
+        const images = await convertPdfToImages(file)
+        
+        for (let i = 0; i < images.length; i++) {
+          setProcessingStatus(`Processing page ${i + 1} of ${images.length}...`)
+          const pageText = await processImageWithOCR(images[i])
+          if (pageText.trim()) {
+            allText += pageText + "\n\n"
+          }
+        }
+      } else {
+        // Handle image files
+        setProcessingStatus("Processing image...")
+        allText = await processImageWithOCR(file)
+      }
+
+      // Clean up the text
+      let cleanedText = allText
+        .replace(/\n{3,}/g, "\n\n")      // Collapse multiple newlines into double newlines
+        .replace(/[ \t]+\n/g, "\n")      // Remove trailing spaces before newlines
+        .replace(/\n\n/g, " ")           // Replace double newlines with space (paragraph breaks)
+        .replace(/\n/g, " ")             // Replace remaining single newlines with space
+        .replace(/ {2,}/g, " ")          // Collapse multiple spaces
+        .trim()
+
+      setExtractedText(cleanedText)
+      setJsonOutput(
+        JSON.stringify(
+          {
+            filename: file.name,
+            fileType: file.type,
+            processedAt: new Date().toISOString(),
+            pageCount: file.type === "application/pdf" ? "multiple" : 1,
+            extractedText: cleanedText,
+          },
+          null,
+          2
+        )
       )
-    )
-    setIsProcessing(false)
+    } catch (error) {
+      setExtractedText("Error during OCR processing.")
+      setJsonOutput("")
+      console.error(error)
+    } finally {
+      setIsProcessing(false)
+      setProcessingStatus("")
+    }
   }
 
   const downloadJSON = () => {
-    if (!jsonOutput) return
+    if (!jsonOutput || typeof window === 'undefined') return
+    
     const blob = new Blob([jsonOutput], { type: "application/json" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -77,22 +190,41 @@ export default function OCRParser() {
     URL.revokeObjectURL(url)
   }
 
+  const getFileIcon = () => {
+    if (!file) return <Image className="w-12 h-12 mx-auto text-muted-foreground" />
+    
+    if (file.type === "application/pdf") {
+      return <File className="w-12 h-12 text-green-500" />
+    } else {
+      return <FileImage className="w-12 h-12 text-green-500" />
+    }
+  }
+
+  const getFileColor = () => {
+    if (!file) return ""
+    
+    if (file.type === "application/pdf") {
+      return "border-green-500 bg-green-50"
+    } else {
+      return "border-green-500 bg-green-50"
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto p-6 grid md:grid-cols-2 gap-6">
-
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="w-5 h-5" /> Upload Document
           </CardTitle>
-          <CardDescription>Only images (JPG, PNG) are supported</CardDescription>
+          <CardDescription>Supports images (JPG, PNG) and PDF files</CardDescription>
         </CardHeader>
         <CardContent>
           <div
             className={cn(
               "border-2 border-dashed rounded-lg p-8 text-center transition-colors relative",
               dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25",
-              file ? "border-green-500 bg-green-50" : ""
+              file ? getFileColor() : ""
             )}
             onDragEnter={handleDrag}
             onDragLeave={handleDrag}
@@ -102,25 +234,35 @@ export default function OCRParser() {
             {file ? (
               <div className="space-y-2">
                 <div className="flex justify-center">
-                  <FileImage className="w-12 h-12 text-green-500" />
+                  {getFileIcon()}
                 </div>
                 <p className="font-medium">{file.name}</p>
-                <p className="text-sm text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                <p className="text-sm text-muted-foreground">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                  {file.type === "application/pdf" && " • PDF"}
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
-                <ImageIcon className="w-12 h-12 mx-auto text-muted-foreground" />
-                <p className="text-lg font-medium">Drop your image here</p>
-                <p className="text-sm text-muted-foreground">or click to browse</p>
+                <Image className="w-12 h-12 mx-auto text-muted-foreground" />
+                <p className="text-lg font-medium">Drop your file here</p>
+                <p className="text-sm text-muted-foreground">Supports images and PDFs</p>
               </div>
             )}
             <input
               type="file"
-              accept=".jpg,.jpeg,.png"
+              accept=".jpg,.jpeg,.png,.pdf"
               onChange={handleFileChange}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
           </div>
+          
+          {processingStatus && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700 font-medium">{processingStatus}</p>
+            </div>
+          )}
+          
           <Button
             onClick={extractText}
             disabled={!file || isProcessing}
@@ -139,7 +281,6 @@ export default function OCRParser() {
           </Button>
         </CardContent>
       </Card>
-
 
       {(extractedText || jsonOutput) && (
         <Card>
