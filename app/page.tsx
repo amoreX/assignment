@@ -41,25 +41,21 @@ export default function OCRParser() {
 
   const convertPdfToImages = async (pdfFile: File): Promise<string[]> => {
     const arrayBuffer = await pdfFile.arrayBuffer()
-    
-    // Dynamically load PDF.js
-    let pdfjsLib
-    if (typeof window !== 'undefined') {
-      // Check if PDF.js is already loaded
-      pdfjsLib = (window as any).pdfjsLib
-      
+
+    let pdfjsLib: typeof import("pdfjs-dist") | undefined
+    if (typeof window !== "undefined") {
+      pdfjsLib = (window as unknown as { pdfjsLib?: typeof import("pdfjs-dist") }).pdfjsLib
+
       if (!pdfjsLib) {
-        // Load PDF.js dynamically
-        const script = document.createElement('script')
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+        const script = document.createElement("script")
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
         document.head.appendChild(script)
-        
+
         await new Promise<void>((resolve, reject) => {
           script.onload = () => {
-            pdfjsLib = (window as any).pdfjsLib
-            // Configure PDF.js worker
+            pdfjsLib = (window as unknown as { pdfjsLib?: typeof import("pdfjs-dist") }).pdfjsLib
             if (pdfjsLib) {
-              pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+              pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"
             }
             resolve()
           }
@@ -67,11 +63,11 @@ export default function OCRParser() {
         })
       }
     } else {
-      throw new Error('Window object not available')
+      throw new Error("Window object not available")
     }
 
     if (!pdfjsLib) {
-      throw new Error('PDF.js failed to load')
+      throw new Error("PDF.js failed to load")
     }
 
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
@@ -79,25 +75,19 @@ export default function OCRParser() {
 
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       setProcessingStatus(`Converting PDF page ${pageNum} of ${pdf.numPages}...`)
-      
       const page = await pdf.getPage(pageNum)
       const viewport = page.getViewport({ scale: 2.0 })
-      
-      const canvas = document.createElement('canvas')
-      const context = canvas.getContext('2d')
-      if (!context) {
-        throw new Error('Failed to get canvas context')
-      }
-      
+
+      const canvas = document.createElement("canvas")
+      const context = canvas.getContext("2d")
+      if (!context) throw new Error("Failed to get canvas context")
+
       canvas.height = viewport.height
       canvas.width = viewport.width
 
-      await page.render({
-        canvasContext: context,
-        viewport: viewport
-      }).promise
+      await page.render({ canvasContext: context, viewport }).promise
 
-      images.push(canvas.toDataURL('image/png'))
+      images.push(canvas.toDataURL("image/png"))
     }
 
     return images
@@ -111,8 +101,7 @@ export default function OCRParser() {
   const extractText = async () => {
     if (!file) return
 
-    // Check if we're in browser environment
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       setExtractedText("OCR processing is only available in the browser.")
       return
     }
@@ -126,10 +115,9 @@ export default function OCRParser() {
       let allText = ""
 
       if (file.type === "application/pdf") {
-        // Handle PDF files
         setProcessingStatus("Converting PDF to images...")
         const images = await convertPdfToImages(file)
-        
+
         for (let i = 0; i < images.length; i++) {
           setProcessingStatus(`Processing page ${i + 1} of ${images.length}...`)
           const pageText = await processImageWithOCR(images[i])
@@ -138,18 +126,16 @@ export default function OCRParser() {
           }
         }
       } else {
-        // Handle image files
         setProcessingStatus("Processing image...")
         allText = await processImageWithOCR(file)
       }
 
-      // Clean up the text
-      let cleanedText = allText
-        .replace(/\n{3,}/g, "\n\n")      // Collapse multiple newlines into double newlines
-        .replace(/[ \t]+\n/g, "\n")      // Remove trailing spaces before newlines
-        .replace(/\n\n/g, " ")           // Replace double newlines with space (paragraph breaks)
-        .replace(/\n/g, " ")             // Replace remaining single newlines with space
-        .replace(/ {2,}/g, " ")          // Collapse multiple spaces
+      const cleanedText = allText
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n\n/g, " ")
+        .replace(/\n/g, " ")
+        .replace(/ {2,}/g, " ")
         .trim()
 
       setExtractedText(cleanedText)
@@ -177,8 +163,8 @@ export default function OCRParser() {
   }
 
   const downloadJSON = () => {
-    if (!jsonOutput || typeof window === 'undefined') return
-    
+    if (!jsonOutput || typeof window === "undefined") return
+
     const blob = new Blob([jsonOutput], { type: "application/json" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -192,22 +178,16 @@ export default function OCRParser() {
 
   const getFileIcon = () => {
     if (!file) return <Image className="w-12 h-12 mx-auto text-muted-foreground" />
-    
-    if (file.type === "application/pdf") {
-      return <File className="w-12 h-12 text-green-500" />
-    } else {
-      return <FileImage className="w-12 h-12 text-green-500" />
-    }
+    return file.type === "application/pdf" ? (
+      <File className="w-12 h-12 text-green-500" />
+    ) : (
+      <FileImage className="w-12 h-12 text-green-500" />
+    )
   }
 
   const getFileColor = () => {
     if (!file) return ""
-    
-    if (file.type === "application/pdf") {
-      return "border-green-500 bg-green-50"
-    } else {
-      return "border-green-500 bg-green-50"
-    }
+    return "border-green-500 bg-green-50"
   }
 
   return (
@@ -233,9 +213,7 @@ export default function OCRParser() {
           >
             {file ? (
               <div className="space-y-2">
-                <div className="flex justify-center">
-                  {getFileIcon()}
-                </div>
+                <div className="flex justify-center">{getFileIcon()}</div>
                 <p className="font-medium">{file.name}</p>
                 <p className="text-sm text-muted-foreground">
                   {(file.size / 1024 / 1024).toFixed(2)} MB
@@ -256,13 +234,13 @@ export default function OCRParser() {
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
           </div>
-          
+
           {processingStatus && (
             <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-700 font-medium">{processingStatus}</p>
             </div>
           )}
-          
+
           <Button
             onClick={extractText}
             disabled={!file || isProcessing}
