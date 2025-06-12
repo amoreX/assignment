@@ -1,103 +1,182 @@
-import Image from "next/image";
+"use client"
 
-export default function Home() {
+import { useState, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Upload, FileText, Download, Loader2, ImageIcon, FileImage } from "lucide-react"
+import { cn } from "@/lib/utils"
+import Tesseract from "tesseract.js"
+
+export default function OCRParser() {
+  const [file, setFile] = useState<File | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [extractedText, setExtractedText] = useState("")
+  const [jsonOutput, setJsonOutput] = useState("")
+  const [dragActive, setDragActive] = useState(false)
+
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(e.type === "dragenter" || e.type === "dragover")
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    const droppedFile = e.dataTransfer.files[0]
+    if (droppedFile && droppedFile.type.startsWith("image/")) {
+      setFile(droppedFile)
+    }
+  }, [])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0])
+    }
+  }
+
+  const extractText = async () => {
+    if (!file) return
+
+    setIsProcessing(true)
+    setExtractedText("")
+    setJsonOutput("")
+
+    const result = await Tesseract.recognize(file, "eng")
+    const text = result.data.text.trim()
+
+    setExtractedText(text)
+    setJsonOutput(
+      JSON.stringify(
+        {
+          filename: file.name,
+          fileType: file.type,
+          processedAt: new Date().toISOString(),
+          extractedText: text,
+        },
+        null,
+        2
+      )
+    )
+    setIsProcessing(false)
+  }
+
+  const downloadJSON = () => {
+    if (!jsonOutput) return
+    const blob = new Blob([jsonOutput], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `ocr-output-${Date.now()}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="max-w-5xl mx-auto p-6 grid md:grid-cols-2 gap-6">
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="w-5 h-5" /> Upload Document
+          </CardTitle>
+          <CardDescription>Only images (JPG, PNG) are supported</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div
+            className={cn(
+              "border-2 border-dashed rounded-lg p-8 text-center transition-colors relative",
+              dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25",
+              file ? "border-green-500 bg-green-50" : ""
+            )}
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+            {file ? (
+              <div className="space-y-2">
+                <div className="flex justify-center">
+                  <FileImage className="w-12 h-12 text-green-500" />
+                </div>
+                <p className="font-medium">{file.name}</p>
+                <p className="text-sm text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <ImageIcon className="w-12 h-12 mx-auto text-muted-foreground" />
+                <p className="text-lg font-medium">Drop your image here</p>
+                <p className="text-sm text-muted-foreground">or click to browse</p>
+              </div>
+            )}
+            <input
+              type="file"
+              accept=".jpg,.jpeg,.png"
+              onChange={handleFileChange}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          </div>
+          <Button
+            onClick={extractText}
+            disabled={!file || isProcessing}
+            className="w-full mt-4"
+            size="lg"
           >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+            {isProcessing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...
+              </>
+            ) : (
+              <>
+                <FileText className="w-4 h-4 mr-2" /> Extract Text
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+
+      {(extractedText || jsonOutput) && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5" /> Output
+                </CardTitle>
+                <CardDescription>Extracted text and JSON</CardDescription>
+              </div>
+              {jsonOutput && (
+                <Button onClick={downloadJSON} variant="outline" size="sm">
+                  <Download className="w-4 h-4 mr-2" /> Download JSON
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {extractedText && (
+              <div className="space-y-2">
+                <Label>Extracted Text</Label>
+                <Textarea value={extractedText} readOnly className="min-h-[100px] font-mono text-sm" />
+              </div>
+            )}
+
+            {jsonOutput && (
+              <div className="space-y-2">
+                <Label>JSON Output</Label>
+                <pre className="bg-muted p-4 rounded-lg overflow-auto max-h-[400px] text-sm">
+                  <code className="language-json">{jsonOutput}</code>
+                </pre>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
-  );
+  )
 }
