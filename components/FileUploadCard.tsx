@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Upload, Image, FileImage, File, Loader2, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Tesseract from "tesseract.js"
-
+import {CleanJson} from "../app/utils/cleanedResponse";
 type Props = {
   file: File | null
   setFile: (file: File | null) => void
@@ -148,21 +148,9 @@ export default function FileUploadCard({
         .replace(/\n/g, " ")
         .replace(/ {2,}/g, " ")
         .trim()
-
-      setExtractedText(cleanedText)
-      setJsonOutput(
-        JSON.stringify(
-          {
-            filename: file.name,
-            fileType: file.type,
-            processedAt: new Date().toISOString(),
-            pageCount: file.type === "application/pdf" ? "multiple" : 1,
-            extractedText: cleanedText,
-          },
-          null,
-          2
-        )
-      )
+      const cleanerText=await CleanJson(cleanedText);
+      setExtractedText(JSON.stringify(cleanerText, null, 2))
+      setJsonOutput(JSON.stringify(cleanerText, null, 2));
     } catch (error) {
       setExtractedText("Error during OCR processing.")
       setJsonOutput("")

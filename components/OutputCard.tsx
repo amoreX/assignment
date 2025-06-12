@@ -10,6 +10,7 @@ type Props = {
 }
 
 export default function OutputCard({ extractedText, jsonOutput }: Props) {
+
   const downloadJSON = () => {
     if (!jsonOutput || typeof window === "undefined") return
 
